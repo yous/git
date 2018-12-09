@@ -71,13 +71,33 @@ then
 	exit 1
 fi
 
+# Parse some options early, taking care to leave $@ intact.
+for opt
+do
+	case "$opt" in
+	--tee)
+		tee=t ;;
+	-V|--verbose-log)
+		verbose_log=t ;;
+	--va|--val|--valg|--valgr|--valgri|--valgrin|--valgrind)
+		valgrind=memcheck ;;
+	--valgrind=*)
+		valgrind=${opt#--*=} ;;
+	--valgrind-only=*)
+		valgrind_only=${opt#--*=} ;;
+	*)
+		# Other options will be handled later.
+	esac
+done
+
 # if --tee was passed, write the output not only to the terminal, but
 # additionally to the file test-results/$BASENAME.out, too.
-case "$GIT_TEST_TEE_STARTED, $* " in
-done,*)
-	# do not redirect again
-	;;
-*' --tee '*|*' --va'*|*' -V '*|*' --verbose-log '*)
+if test "$GIT_TEST_TEE_STARTED" = "done"
+then
+	: # do not redirect again
+elif test -n "$tee" || test -n "$verbose_log" ||
+     test -n "$valgrind" || test -n "$valgrind_only"
+then
 	mkdir -p "$TEST_OUTPUT_DIRECTORY/test-results"
 	BASE="$TEST_OUTPUT_DIRECTORY/test-results/$(basename "$0" .sh)"
 
@@ -94,8 +114,7 @@ done,*)
 	 echo $? >"$BASE.exit") | tee -a "$GIT_TEST_TEE_OUTPUT_FILE"
 	test "$(cat "$BASE.exit")" = 0
 	exit
-	;;
-esac
+fi
 
 # For repeatability, reset the environment to known value.
 # TERM is sanitized below, after saving color control sequences.
@@ -296,17 +315,6 @@ do
 		with_dashes=t; shift ;;
 	--no-color)
 		color=; shift ;;
-	--va|--val|--valg|--valgr|--valgri|--valgrin|--valgrind)
-		valgrind=memcheck
-		shift ;;
-	--valgrind=*)
-		valgrind=${1#--*=}
-		shift ;;
-	--valgrind-only=*)
-		valgrind_only=${1#--*=}
-		shift ;;
-	--tee)
-		shift ;; # was handled already
 	--root=*)
 		root=${1#--*=}
 		shift ;;
@@ -336,9 +344,12 @@ do
 			echo >&2 "warning: ignoring -x; '$0' is untraceable without BASH_XTRACEFD"
 		fi
 		shift ;;
-	-V|--verbose-log)
-		verbose_log=t
-		shift ;;
+	--tee|\
+	-V|--verbose-log|\
+	--va|--val|--valg|--valgr|--valgri|--valgrin|--valgrind|\
+	--valgrind=*|\
+	--valgrind-only=*)
+		shift ;; # These options were handled already.
 	*)
 		echo "error: unknown test option '$1'" >&2; exit 1 ;;
 	esac
