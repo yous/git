@@ -87,20 +87,109 @@ do
 		valgrind_only=${opt#--*=} ;;
 	--root=*)
 		root=${opt#--*=} ;;
+	--stress)
+		stress=t ;;
+	--stress=*)
+		stress=${opt#--*=} ;;
 	*)
 		# Other options will be handled later.
 	esac
 done
 
+TEST_STRESS_JOB_SFX="${GIT_TEST_STRESS_JOB_NR:+.stress-$GIT_TEST_STRESS_JOB_NR}"
 TEST_NAME="$(basename "$0" .sh)"
 TEST_RESULTS_DIR="$TEST_OUTPUT_DIRECTORY/test-results"
-TEST_RESULTS_BASE="$TEST_RESULTS_DIR/$TEST_NAME"
-TRASH_DIRECTORY="trash directory.$TEST_NAME"
+TEST_RESULTS_BASE="$TEST_RESULTS_DIR/$TEST_NAME$TEST_STRESS_JOB_SFX"
+TRASH_DIRECTORY="trash directory.$TEST_NAME$TEST_STRESS_JOB_SFX"
 test -n "$root" && TRASH_DIRECTORY="$root/$TRASH_DIRECTORY"
 case "$TRASH_DIRECTORY" in
 /*) ;; # absolute path is good
  *) TRASH_DIRECTORY="$TEST_OUTPUT_DIRECTORY/$TRASH_DIRECTORY" ;;
 esac
+
+# If --stress was passed, run this test repeatedly in several parallel loops.
+if test "$GIT_TEST_STRESS_STARTED" = "done"
+then
+	: # Don't stress test again.
+elif test -n "$stress"
+then
+	if test "$stress" != t
+	then
+		job_count=$stress
+	elif test -n "$GIT_TEST_STRESS_LOAD"
+	then
+		job_count="$GIT_TEST_STRESS_LOAD"
+	elif job_count=$(getconf _NPROCESSORS_ONLN 2>/dev/null) &&
+	     test -n "$job_count"
+	then
+		job_count=$((2 * $job_count))
+	else
+		job_count=8
+	fi
+
+	mkdir -p "$TEST_RESULTS_DIR"
+	stressfail="$TEST_RESULTS_BASE.stress-failed"
+	rm -f "$stressfail"
+
+	stress_exit=0
+	trap '
+		kill $job_pids 2>/dev/null
+		wait
+		stress_exit=1
+	' TERM INT HUP
+
+	job_pids=
+	job_nr=0
+	while test $job_nr -lt "$job_count"
+	do
+		(
+			GIT_TEST_STRESS_STARTED=done
+			GIT_TEST_STRESS_JOB_NR=$job_nr
+			export GIT_TEST_STRESS_STARTED GIT_TEST_STRESS_JOB_NR
+
+			trap '
+				kill $test_pid 2>/dev/null
+				wait
+				exit 1
+			' TERM INT
+
+			cnt=0
+			while ! test -e "$stressfail"
+			do
+				$TEST_SHELL_PATH "$0" "$@" >"$TEST_RESULTS_BASE.stress-$job_nr.out" 2>&1 &
+				test_pid=$!
+
+				if wait $test_pid
+				then
+					printf "OK   %2d.%d\n" $GIT_TEST_STRESS_JOB_NR $cnt
+				else
+					echo $GIT_TEST_STRESS_JOB_NR >>"$stressfail"
+					printf "FAIL %2d.%d\n" $GIT_TEST_STRESS_JOB_NR $cnt
+				fi
+				cnt=$(($cnt + 1))
+			done
+		) &
+		job_pids="$job_pids $!"
+		job_nr=$(($job_nr + 1))
+	done
+
+	wait
+
+	if test -f "$stressfail"
+	then
+		echo "Log(s) of failed test run(s):"
+		for failed_job_nr in $(sort -n "$stressfail")
+		do
+			echo "Contents of '$TEST_RESULTS_BASE.stress-$failed_job_nr.out':"
+			cat "$TEST_RESULTS_BASE.stress-$failed_job_nr.out"
+		done
+		rm -rf "$TRASH_DIRECTORY.stress-failed"
+		# Move the last one.
+		mv "$TRASH_DIRECTORY.stress-$failed_job_nr" "$TRASH_DIRECTORY.stress-failed"
+	fi
+
+	exit $stress_exit
+fi
 
 # if --tee was passed, write the output not only to the terminal, but
 # additionally to the file test-results/$BASENAME.out, too.
@@ -340,7 +429,8 @@ do
 	--va|--val|--valg|--valgr|--valgri|--valgrin|--valgrind|\
 	--valgrind=*|\
 	--valgrind-only=*|\
-	--root=*)
+	--root=*|\
+	--stress|--stress=*)
 		shift ;; # These options were handled already.
 	*)
 		echo "error: unknown test option '$1'" >&2; exit 1 ;;
@@ -377,6 +467,13 @@ fi
 if test -n "$trace" && test -z "$verbose_log"
 then
 	verbose=t
+fi
+
+if test -n "$stress"
+then
+	verbose=t
+	trace=t
+	immediate=t
 fi
 
 if test -n "$color"
