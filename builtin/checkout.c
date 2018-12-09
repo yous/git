@@ -46,6 +46,7 @@ struct checkout_opts {
 	int show_progress;
 	int overlay_mode;
 	int cached;
+	int ignore_unmatched;
 	/*
 	 * If new checkout options are added, skip_merge_working_tree
 	 * should be updated accordingly.
@@ -358,7 +359,8 @@ static int checkout_paths(const struct checkout_opts *opts,
 			ce->ce_flags |= CE_MATCHED;
 	}
 
-	if (report_path_error(ps_matched, &opts->pathspec, opts->prefix)) {
+	if (!opts->ignore_unmatched &&
+	    report_path_error(ps_matched, &opts->pathspec, opts->prefix)) {
 		free(ps_matched);
 		return 1;
 	}
@@ -583,6 +585,11 @@ static int skip_merge_working_tree(const struct checkout_opts *opts,
 
 	/*
 	 * opts->cached cannot be used with switching branches so is
+	 * not tested here
+	 */
+
+	/*
+	 * opts->ignore_unmatched cannot be used with switching branches so is
 	 * not tested here
 	 */
 
@@ -1320,6 +1327,7 @@ int cmd_checkout(int argc, const char **argv, const char *prefix)
 		OPT_BOOL(0, "progress", &opts.show_progress, N_("force progress reporting")),
 		OPT_BOOL(0, "overlay", &opts.overlay_mode, N_("use overlay mode")),
 		OPT_BOOL(0, "cached", &opts.cached, N_("work on the index only")),
+		OPT_BOOL(0, "ignore-unmatched", &opts.ignore_unmatched, N_("don't error on unmatched pathspecs")),
 		OPT_END(),
 	};
 
