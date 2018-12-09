@@ -45,6 +45,7 @@ struct checkout_opts {
 	int ignore_other_worktrees;
 	int show_progress;
 	int overlay_mode;
+	int cached;
 	/*
 	 * If new checkout options are added, skip_merge_working_tree
 	 * should be updated accordingly.
@@ -288,6 +289,10 @@ static int checkout_paths(const struct checkout_opts *opts,
 		die(_("Cannot update paths and switch to branch '%s' at the same time."),
 		    opts->new_branch);
 
+	if (opts->patch_mode && opts->cached)
+		return run_add_interactive(revision, "--patch=reset",
+					   &opts->pathspec);
+
 	if (opts->patch_mode)
 		return run_add_interactive(revision, "--patch=checkout",
 					   &opts->pathspec);
@@ -319,7 +324,9 @@ static int checkout_paths(const struct checkout_opts *opts,
 				 * the current index, which means that it should
 				 * be removed.
 				 */
-				ce->ce_flags |= CE_MATCHED | CE_REMOVE | CE_WT_REMOVE;
+				ce->ce_flags |= CE_MATCHED | CE_REMOVE;
+				if (!opts->cached)
+					ce->ce_flags |= CE_WT_REMOVE;
 				continue;
 			} else {
 				/*
@@ -392,6 +399,9 @@ static int checkout_paths(const struct checkout_opts *opts,
 	for (pos = 0; pos < active_nr; pos++) {
 		struct cache_entry *ce = active_cache[pos];
 		if (ce->ce_flags & CE_MATCHED) {
+			if (opts->cached) {
+				continue;
+			}
 			if (!ce_stage(ce)) {
 				errs |= checkout_entry(ce, &state, NULL);
 				continue;
@@ -568,6 +578,11 @@ static int skip_merge_working_tree(const struct checkout_opts *opts,
 
 	/*
 	 * opts->overlay_mode cannot be used with switching branches so is
+	 * not tested here
+	 */
+
+	/*
+	 * opts->cached cannot be used with switching branches so is
 	 * not tested here
 	 */
 
@@ -1207,9 +1222,13 @@ static int checkout_branch(struct checkout_opts *opts,
 		die(_("'%s' cannot be used with switching branches"),
 		    "--patch");
 
-	if (!opts->overlay_mode)
+	if (opts->overlay_mode != -1)
 		die(_("'%s' cannot be used with switching branches"),
-		    "--no-overlay");
+		    "--overlay/--no-overlay");
+
+	if (opts->cached)
+		die(_("'%s' cannot be used with switching branches"),
+		    "--cached");
 
 	if (opts->writeout_stage)
 		die(_("'%s' cannot be used with switching branches"),
@@ -1300,6 +1319,7 @@ int cmd_checkout(int argc, const char **argv, const char *prefix)
 			    PARSE_OPT_OPTARG, option_parse_recurse_submodules_worktree_updater },
 		OPT_BOOL(0, "progress", &opts.show_progress, N_("force progress reporting")),
 		OPT_BOOL(0, "overlay", &opts.overlay_mode, N_("use overlay mode")),
+		OPT_BOOL(0, "cached", &opts.cached, N_("work on the index only")),
 		OPT_END(),
 	};
 
