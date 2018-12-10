@@ -107,18 +107,18 @@ struct seen_map_entry {
 	size_t depth;
 };
 
-static void filter_trees_update_omits(
+static int filter_trees_update_omits(
 	struct object *obj,
 	struct filter_trees_depth_data *filter_data,
 	int include_it)
 {
 	if (!filter_data->omits)
-		return;
+		return 1;
 
 	if (include_it)
-		oidset_remove(filter_data->omits, &obj->oid);
+		return oidset_remove(filter_data->omits, &obj->oid);
 	else
-		oidset_insert(filter_data->omits, &obj->oid);
+		return oidset_insert(filter_data->omits, &obj->oid);
 }
 
 static enum list_objects_filter_result filter_trees_depth(
@@ -170,12 +170,17 @@ static enum list_objects_filter_result filter_trees_depth(
 		if (already_seen)
 			filter_res = LOFR_SKIP_TREE;
 		else {
+			int been_omitted = filter_trees_update_omits(
+				obj, filter_data, include_it);
 			seen_info->depth = filter_data->current_depth;
-			filter_trees_update_omits(obj, filter_data, include_it);
 
 			if (include_it)
 				filter_res = LOFR_DO_SHOW;
-			else if (filter_data->omits)
+			else if (!been_omitted)
+				/*
+				 * Must update omit information of children
+				 * recursively; they have not been omitted yet.
+				 */
 				filter_res = LOFR_ZERO;
 			else
 				filter_res = LOFR_SKIP_TREE;
