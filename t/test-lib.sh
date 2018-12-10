@@ -446,6 +446,13 @@ then
 	test -z "$verbose_log" && verbose=t
 fi
 
+if test -n "$stress"
+then
+	verbose=t
+	trace=t
+	immediate=t
+fi
+
 if test -n "$trace" && test -n "$test_untraceable"
 then
 	# '-x' tracing requested, but this test script can't be reliably
@@ -467,13 +474,6 @@ fi
 if test -n "$trace" && test -z "$verbose_log"
 then
 	verbose=t
-fi
-
-if test -n "$stress"
-then
-	verbose=t
-	trace=t
-	immediate=t
 fi
 
 if test -n "$color"
